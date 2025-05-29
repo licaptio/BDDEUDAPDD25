@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Reporte de Facturas por Antigüedad</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+
+ 
+ <style>
+    body { font-family: Arial; padding: 20px; }
+    select, button { padding: 8px; margin: 10px 0; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background-color: #f0f0f0; }
+    td.numeric { text-align: right; }
+td.uuid, th.uuid { max-width: 360px; width: 360px; word-break: break-all; }
+
+  </style>
+</head>
+<body>
+  <h2>Reporte de Facturas por Antigüedad</h2>
+
+  <label for="razonSelect">Selecciona Razon Social Emisor:</label>
+  <select id="razonSelect">
+    <option value="">-- Selecciona --</option>
+  </select>
+  <button onclick="generarReporte()">Buscar</button>
+  <button onclick="descargarPDF()">Descargar PDF</button>
+
+  <div id="reporte"></div>
+
+  <script>
+    const supabase = window.supabase.createClient(
+      'https://cvpbtjlupswbyxenugpz.supabase.co',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN2cGJ0amx1cHN3Ynl4ZW51Z3B6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc3MDIxOTQsImV4cCI6MjA2MzI3ODE5NH0.iiJsYM3TtaGPdeCtPcEXwAz3LfFc1uJGECEvOErvrqY'
+    );
+
+    let datosFiltrados = [];
+    const formatoPesos = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
+
+    async function cargarRazones() {
+      const { data, error } = await supabase
+        .from('deuda_pddprotec25')
+        .select('razon_social_emisor')
+        .neq('razon_social_emisor', '')
+        .order('razon_social_emisor', { ascending: true });
+      if (data) {
+        const unicos = [...new Set(data.map(x => x.razon_social_emisor))];
+        const select = document.getElementById('razonSelect');
+        unicos.forEach(r => {
+          const opt = document.createElement('option');
+          opt.value = r;
+          opt.textContent = r;
+          select.appendChild(opt);
+        });
+      }
+    }
+
+    function calcularAntiguedad(fechaStr) {
+      const hoy = new Date();
+      const fecha = new Date(fechaStr);
+      const diff = Math.floor((hoy - fecha) / (1000 * 60 * 60 * 24));
+      return diff;
+    }
+
+    function formatFecha(fechaStr) {
+      const fecha = new Date(fechaStr);
+      return fecha.toLocaleDateString('es-MX');
+    }
+
+    async function generarReporte() {
+      const razon = document.getElementById('razonSelect').value;
+      if (!razon) return alert('Selecciona una razon social');
+
+const { data, error } = await supabase
+  .from('deuda_pddprotec25')
+  .select('*')
+  .eq('razon_social_emisor', razon)
+  .eq('factura_pagada', 'NO'); // <-- solo trae las no pagadas
+
+      if (error) {
+        console.error('Error al obtener datos:', error);
+        alert('Error al obtener datos de Supabase');
+        return;
+      }
+
+      datosFiltrados = (data || []).map(row => {
+        const fechaRaw = new Date(row.fecha_transaccion);
+        const dias = calcularAntiguedad(fechaRaw);
+        const total = parseFloat(row.total) || 0;
+        return {
+          fecha: formatFecha(fechaRaw),
+          fecha_raw: fechaRaw,
+          uuid: row.uuid,
+          factura: row.factura,
+          total,
+          dias,
+          dias_0_30: dias <= 30 ? formatoPesos.format(total) : '',
+          dias_31_60: dias > 30 && dias <= 60 ? formatoPesos.format(total) : '',
+          dias_61_90: dias > 60 && dias <= 90 ? formatoPesos.format(total) : '',
+          dias_90_mas: dias > 90 ? formatoPesos.format(total) : ''
+        };
+      }).sort((a, b) => a.fecha_raw - b.fecha_raw);
+
+      mostrarTabla();
+    }
+
+    function mostrarTabla() {
+      const contenedor = document.getElementById('reporte');
+      contenedor.innerHTML = '';
+      const tabla = document.createElement('table');
+const thead = `<tr>
+  <th>Fecha</th>
+  <th class="uuid">UUID</th>
+  <th>Factura</th>
+  <th>Total</th>
+  <th>0 A 30 DÍAS</th>
+  <th>31 A 60 DÍAS</th>
+  <th>60 A 90 DÍAS</th>
+  <th>MAS DE 90 DÍAS</th>
+  <th>Pagada</th>
+</tr>`;
+
+
+
+const filas = datosFiltrados.map(f =>
+  `<tr>
+    <td>${f.fecha}</td>
+    <td class="uuid">${f.uuid}</td>
+    <td>${f.factura}</td>
+    <td class="numeric">${formatoPesos.format(f.total)}</td>
+    <td class="numeric">${f.dias_0_30}</td>
+    <td class="numeric">${f.dias_31_60}</td>
+    <td class="numeric">${f.dias_61_90}</td>
+    <td class="numeric">${f.dias_90_mas}</td>
+    <td><input type="checkbox" onchange="marcarComoPagada('${f.uuid}')"></td>
+  </tr>`
+).join('');
+
+
+      tabla.innerHTML = thead + filas;
+      contenedor.appendChild(tabla);
+    }
+
+function descargarPDF() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+
+  const fechaActual = new Date().toLocaleDateString('es-MX');
+  doc.setFontSize(16);
+  doc.setTextColor(40);
+  doc.text("Reporte de Facturas por Antigüedad", 148, 15, { align: "center" });
+
+  doc.setFontSize(10);
+  doc.setTextColor(100);
+  doc.text(`Fecha de generación: ${fechaActual}`, 270, 15, { align: "right" });
+
+  const headers = [[
+    "Fecha",
+    "UUID",
+    "Factura",
+    "Total",
+    "0 A 30 DÍAS",
+    "31 A 60 DÍAS",
+    "60 A 90 DÍAS",
+    "MAS DE 90 DÍAS"
+  ]];
+
+  const rows = datosFiltrados.map(f => [
+    f.fecha,
+    f.uuid,
+    f.factura,
+    formatoPesos.format(f.total),
+    f.dias_0_30 || "",
+    f.dias_31_60 || "",
+    f.dias_61_90 || "",
+    f.dias_90_mas || ""
+  ]);
+
+  doc.autoTable({
+    startY: 25,
+    head: headers,
+    body: rows,
+    theme: 'striped',
+    styles: { fontSize: 9, cellPadding: 2 },
+    headStyles: {
+      fillColor: [0, 51, 102], // azul corporativo oscuro
+      textColor: 255,
+      halign: 'center'
+    },
+    columnStyles: {
+      0: { cellWidth: 20 },  // Fecha
+      1: { cellWidth: 70 },  // UUID
+      2: { cellWidth: 25 },  // Factura
+      3: { halign: 'right' }, // Total
+      4: { halign: 'right' },
+      5: { halign: 'right' },
+      6: { halign: 'right' },
+      7: { halign: 'right' }
+    }
+  });
+
+  // Pie de página
+  doc.setFontSize(8);
+  doc.setTextColor(150);
+  doc.text("Reporte generado automáticamente por el sistema de gestión de facturas", 148, 200, { align: "center" });
+
+  doc.save(`Reporte_Facturas_${fechaActual.replace(/\//g, '-')}.pdf`);
+}
+
+
+
+async function marcarComoPagada(uuid) {
+  const { error } = await supabase
+    .from('deuda_pddprotec25')
+    .update({ factura_pagada: 'SI' })
+    .eq('uuid', uuid);
+
+  if (error) {
+    alert("❌ Error al marcar como pagada");
+    console.error(error);
+  } else {
+    alert("✅ Factura marcada como pagada");
+    generarReporte(); // recarga la tabla sin esa factura
+  }
+}
+
+
+    cargarRazones();
+  </script>
+</body>
+</html>

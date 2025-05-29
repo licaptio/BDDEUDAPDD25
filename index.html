@@ -188,8 +188,18 @@
       currency: 'MXN'
     });
 
+    function extraerUUID(valor) {
+      if (valor.includes("verificacfdi.facturaelectronica.sat.gob.mx")) {
+        const urlParams = new URLSearchParams(valor.split("?")[1]);
+        return urlParams.get("id") || '';
+      }
+      return valor;
+    }
+
     async function buscarFactura() {
-      const uuid = document.getElementById('uuidInput').value.trim().toLowerCase();
+      const raw = document.getElementById('uuidInput').value.trim().toLowerCase();
+      const uuid = extraerUUID(raw);
+
       const { data, error } = await supabase
         .from('deuda_pddprotec25')
         .select('*')
@@ -221,7 +231,6 @@
       document.getElementById('factura_fisicamente').value = f.factura_fisicamente || 'NO';
       document.getElementById('comentario_fisica').value = f.comentario_factura_fisica || '';
       document.getElementById('factura_pagada').value = f.factura_pagada || 'NO';
-      
       document.getElementById('notas').value = f.notas || '';
 
       editor.style.display = 'block';

@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Resumen General de Deuda por Proveedor</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+  <style>
+    body { font-family: Arial; padding: 20px; }
+    select, input[type="checkbox"], button { margin: 10px 5px; padding: 8px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: right; }
+    th { background-color: #003366; color: white; text-align: center; }
+    td:first-child { text-align: left; }
+  </style>
+</head>
+<body>
+  <h2>Resumen General de Deuda por Proveedor</h2>
+
+  <label><input type="checkbox" id="verTodos" checked onchange="cargarResumen()"> Ver todos</label>
+  <select id="proveedorSelect" onchange="cargarResumen()" disabled>
+    <option value="">-- Selecciona un proveedor --</option>
+  </select>
+  <button onclick="exportarResumenPDF()">Exportar PDF</button>
+
+  <table id="tablaResumen">
+    <thead>
+      <tr>
+        <th>Proveedor</th>
+        <th>0–15 días</th>
+        <th>16–21 días</th>
+        <th>22–30 días</th>
+        <th>31–60 días</th>
+        <th>61–90 días</th>
+        <th>+90 días</th>
+        <th>Total General</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+<script>
+const supabase = window.supabase.createClient(
+  'https://cvpbtjlupswbyxenugpz.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN2cGJ0amx1cHN3Ynl4ZW51Z3B6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc3MDIxOTQsImV4cCI6MjA2MzI3ODE5NH0.iiJsYM3TtaGPdeCtPcEXwAz3LfFc1uJGECEvOErvrqY'
+);
+
+const formatoPesos = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
+
+document.getElementById("verTodos").addEventListener("change", e => {
+  document.getElementById("proveedorSelect").disabled = e.target.checked;
+  cargarResumen();
+});
+
+async function cargarResumen() {
+  const verTodos = document.getElementById("verTodos").checked;
+  const proveedor = document.getElementById("proveedorSelect").value;
+
+  const { data, error } = await supabase
+    .from('deuda_pddprotec25')
+    .select('razon_social_emisor, fecha_transaccion, total')
+    .eq('factura_pagada', 'NO');
+
+  if (error) {
+    alert("Error al cargar datos");
+    return;
+  }
+
+  const resumen = {};
+  data.forEach(row => {
+    if (!verTodos && row.razon_social_emisor !== proveedor) return;
+    if (!resumen[row.razon_social_emisor]) {
+      resumen[row.razon_social_emisor] = [0, 0, 0, 0, 0, 0];
+    }
+
+    const fecha = new Date(row.fecha_transaccion);
+    const dias = Math.floor((new Date() - fecha) / (1000 * 60 * 60 * 24));
+    const monto = parseFloat(row.total) || 0;
+
+    if (dias <= 15) resumen[row.razon_social_emisor][0] += monto;
+    else if (dias <= 21) resumen[row.razon_social_emisor][1] += monto;
+    else if (dias <= 30) resumen[row.razon_social_emisor][2] += monto;
+    else if (dias <= 60) resumen[row.razon_social_emisor][3] += monto;
+    else if (dias <= 90) resumen[row.razon_social_emisor][4] += monto;
+    else resumen[row.razon_social_emisor][5] += monto;
+  });
+
+  const tbody = document.querySelector("#tablaResumen tbody");
+  tbody.innerHTML = "";
+
+  Object.entries(resumen)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .forEach(([prov, totales]) => {
+      const totalGeneral = totales.reduce((a, b) => a + b, 0);
+      const fila = `<tr>
+        <td>${prov}</td>
+        <td>${formatoPesos.format(totales[0])}</td>
+        <td>${formatoPesos.format(totales[1])}</td>
+        <td>${formatoPesos.format(totales[2])}</td>
+        <td>${formatoPesos.format(totales[3])}</td>
+        <td>${formatoPesos.format(totales[4])}</td>
+        <td>${formatoPesos.format(totales[5])}</td>
+        <td>${formatoPesos.format(totalGeneral)}</td>
+      </tr>`;
+      tbody.insertAdjacentHTML("beforeend", fila);
+    });
+}
+
+async function cargarProveedores() {
+  const { data, error } = await supabase
+    .from('deuda_pddprotec25')
+    .select('razon_social_emisor')
+    .neq('razon_social_emisor', '')
+    .order('razon_social_emisor', { ascending: true });
+
+  if (!error && data) {
+    const select = document.getElementById("proveedorSelect");
+    const unicos = [...new Set(data.map(x => x.razon_social_emisor))];
+    unicos.forEach(nombre => {
+      const opt = document.createElement("option");
+      opt.value = nombre;
+      opt.textContent = nombre;
+      select.appendChild(opt);
+    });
+  }
+}
+
+function exportarResumenPDF() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+
+  const fecha = new Date().toLocaleDateString('es-MX');
+  doc.setFontSize(14);
+  doc.text("Resumen General de Deuda por Proveedor", 148, 15, { align: "center" });
+  doc.setFontSize(10);
+  doc.text(`Generado el ${fecha}`, 275, 15, { align: "right" });
+
+  const filas = [];
+  document.querySelectorAll("#tablaResumen tbody tr").forEach(tr => {
+    const cols = Array.from(tr.children).map(td => td.textContent);
+    filas.push(cols);
+  });
+
+  doc.autoTable({
+    startY: 25,
+    head: [[
+      "Proveedor", "0–15 días", "16–21 días", "22–30 días",
+      "31–60 días", "61–90 días", "+90 días", "Total General"
+    ]],
+    body: filas,
+    theme: 'striped',
+    styles: { fontSize: 9 },
+    headStyles: { fillColor: [0, 51, 102], textColor: 255 }
+  });
+
+  doc.save(`Resumen_Deuda_${fecha.replace(/\//g, '-')}.pdf`);
+}
+
+cargarProveedores();
+cargarResumen();
+</script>
+</body>
+</html>

@@ -1,0 +1,280 @@
+
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<title>Editar Factura con QR</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+<script src="https://unpkg.com/html5-qrcode"></script>
+<style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #eef3f8;
+      padding: 30px;
+    }
+
+    .contenedor {
+      max-width: 1100px;
+      margin: auto;
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 0 12px rgba(0,0,0,0.1);
+    }
+
+    h2, h3 {
+      color: #00264d;
+    }
+
+    .input-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      margin-top: 20px;
+    }
+
+    .input-group {
+      flex: 1;
+      min-width: 250px;
+    }
+
+    label {
+      font-weight: bold;
+      display: block;
+      margin-bottom: 5px;
+    }
+
+    input[type="text"], textarea, select {
+      width: 100%;
+      padding: 10px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      font-size: 14px;
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 60px;
+    }
+
+    button {
+      margin-top: 20px;
+      padding: 10px 20px;
+      background-color: #00264d;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 15px;
+      cursor: pointer;
+    }
+
+    .resumen {
+      margin-top: 30px;
+    }
+
+    .resumen p {
+      margin: 6px 0;
+      font-size: 15px;
+    }
+
+    .resumen strong {
+      color: #00264d;
+    }
+
+    #qr-reader {
+      width: 100%;
+      max-width: 500px;
+      margin-top: 20px;
+    }
+  
+    input#uuidInput {
+      max-width: 300px;
+      font-size: 16px;
+    }
+
+    @media (max-width: 600px) {
+      body {
+        font-size: 16px;
+      }
+
+      input#uuidInput {
+        width: 100%;
+        max-width: 100%;
+        font-size: 18px;
+      }
+
+      button {
+        width: 100%;
+        margin-bottom: 10px;
+      }
+    }
+
+    .uuid-busqueda {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      margin: 20px 0;
+    }
+
+    .uuid-busqueda input {
+      width: 260px;
+      padding: 10px;
+      font-size: 15px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+    }
+
+    .uuid-busqueda button {
+      width: 200px;
+    }
+
+    @media (min-width: 600px) {
+      .uuid-busqueda {
+        flex-direction: column;
+      }
+    }
+</style>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/></head>
+<body>
+<div class="contenedor" style="text-align: center; max-width: 500px; padding: 20px;">
+<h2 style="text-align: center;">Editar Factura por UUID</h2><div class="uuid-busqueda"><input id="uuidInput" maxlength="36" placeholder="Escribe UUID de la factura" style="width: 300px; font-size: 15px;" type="text"/><button id="buscarBtn">Buscar</button><button onclick="iniciarEscaner()">📷 Escanear QR</button></div>
+<div id="qr-reader" style="display:none;"></div>
+<div class="resumen" id="resumenFactura"></div>
+<div id="editor" style="display:none;">
+<div class="input-group">
+<label>¿Factura Físicamente?</label>
+<select id="factura_fisicamente" style="width: 80px;">
+<option value="NO">NO</option>
+<option value="SI">SI</option>
+</select>
+</div>
+<div class="input-group">
+<label>Comentario Factura Física:</label>
+<textarea id="comentario_fisica" style="width: 300px; height: 80px;"></textarea>
+</div>
+<div class="input-group">
+<label>¿Factura Pagada?</label>
+<select id="factura_pagada" style="width: 80px;">
+<option value="NO">NO</option>
+<option value="SI">SI</option>
+</select>
+</div>
+<div class="input-group">
+<label>Notas Adicionales:</label>
+<textarea id="notas" style="width: 300px; height: 80px;"></textarea>
+</div>
+<h3>Editar campos:</h3>
+<button id="guardarBtn">Guardar Cambios</button>
+<div id="mensaje"></div>
+</div>
+</div>
+<script>
+    const supabase = window.supabase.createClient(
+      'https://cvpbtjlupswbyxenugpz.supabase.co',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN2cGJ0amx1cHN3Ynl4ZW51Z3B6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc3MDIxOTQsImV4cCI6MjA2MzI3ODE5NH0.iiJsYM3TtaGPdeCtPcEXwAz3LfFc1uJGECEvOErvrqY'
+    );
+
+    let uuidActual = null;
+
+    function formatFecha(fechaStr) {
+      const fecha = new Date(fechaStr);
+      return fecha.toLocaleDateString('es-MX');
+    }
+
+    const formatter = new Intl.NumberFormat('es-MX', {
+      style: 'currency',
+      currency: 'MXN'
+    });
+
+    async function buscarFactura() {
+      const uuid = document.getElementById('uuidInput').value.trim().toLowerCase();
+      const { data, error } = await supabase
+        .from('deuda_pddprotec25')
+        .select('*')
+        .eq('uuid', uuid)
+        .limit(1);
+
+      const editor = document.getElementById('editor');
+      const resumen = document.getElementById('resumenFactura');
+      const mensaje = document.getElementById('mensaje');
+
+      if (error || !data || data.length === 0) {
+        resumen.innerHTML = `<p style="color:red;">❌ No se encontró la factura.</p>`;
+        editor.style.display = 'none';
+        return;
+      }
+
+      const f = data[0];
+      uuidActual = f.uuid;
+
+      resumen.innerHTML = `
+        <h3>Resumen de Factura</h3>
+        <p><strong>UUID:</strong> ${f.uuid}</p>
+        <p><strong>Factura:</strong> ${f.factura}</p>
+        <p><strong>Razón Social Emisor:</strong> ${f.razon_social_emisor}</p>
+        <p><strong>Fecha de Transacción:</strong> ${formatFecha(f.fecha_transaccion)}</p>
+        <p><strong>Importe Total:</strong> ${formatter.format(f.total)}</p>
+      `;
+
+      document.getElementById('factura_fisicamente').value = f.factura_fisicamente || 'NO';
+      document.getElementById('comentario_fisica').value = f.comentario_factura_fisica || '';
+      document.getElementById('factura_pagada').value = f.factura_pagada || 'NO';
+      
+      document.getElementById('notas').value = f.notas || '';
+
+      editor.style.display = 'block';
+      mensaje.innerHTML = '';
+    }
+
+    async function guardarCambios() {
+      const updates = {
+        factura_fisicamente: document.getElementById('factura_fisicamente').value,
+        comentario_factura_fisica: document.getElementById('comentario_fisica').value.trim(),
+        factura_pagada: document.getElementById('factura_pagada').value,
+        
+        notas: document.getElementById('notas').value.trim()
+      };
+
+      const { error } = await supabase
+        .from('deuda_pddprotec25')
+        .update(updates)
+        .eq('uuid', uuidActual);
+
+      const mensaje = document.getElementById('mensaje');
+      mensaje.innerHTML = error
+        ? `<p style="color:red;">❌ Error al guardar los cambios.</p>`
+        : `<p style="color:green;">✅ Cambios guardados correctamente.</p>`;
+    }
+
+    function iniciarEscaner() {
+      const qrElement = document.getElementById("qr-reader");
+      qrElement.style.display = "block";
+
+      const qrScanner = new Html5Qrcode("qr-reader");
+      qrScanner.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: 250 },
+        (decodedText, decodedResult) => {
+          if (decodedText.includes("verificacfdi.facturaelectronica.sat.gob.mx")) {
+            const urlParams = new URLSearchParams(decodedText.split("?")[1]);
+            const uuid = urlParams.get("id");
+            if (uuid) {
+              document.getElementById("uuidInput").value = uuid;
+              qrScanner.stop();
+              qrElement.style.display = "none";
+              buscarFactura();
+            }
+          }
+        }
+      ).catch(err => {
+        console.error("Error al iniciar lector QR:", err);
+      });
+    }
+
+    document.getElementById('buscarBtn').addEventListener('click', buscarFactura);
+    document.getElementById('guardarBtn').addEventListener('click', guardarCambios);
+  </script>
+</body>
+</html>

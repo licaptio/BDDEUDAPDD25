@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Insertar/Actualizar Facturas desde Excel</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+  <style>
+    body { font-family: Arial; padding: 20px; }
+    textarea { width: 100%; height: 200px; font-family: monospace; }
+    button { padding: 10px; margin-top: 10px; }
+    #resultado { margin-top: 20px; white-space: pre-wrap; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <h2>Insertar/Actualizar Facturas desde Excel</h2>
+  <p>Pega aquí los datos desde Excel (una línea por fila, columnas separadas por TAB):</p>
+  <textarea id="inputExcel"></textarea>
+  <button id="btnProcesar">Procesar</button>
+
+  <div id="resultado"></div>
+
+  <script>
+    const supabase = window.supabase.createClient(
+      'https://cvpbtjlupswbyxenugpz.supabase.co',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN2cGJ0amx1cHN3Ynl4ZW51Z3B6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc3MDIxOTQsImV4cCI6MjA2MzI3ODE5NH0.iiJsYM3TtaGPdeCtPcEXwAz3LfFc1uJGECEvOErvrqY'
+    );
+
+    document.getElementById('btnProcesar').addEventListener('click', procesarDatos);
+
+    function parsearDatos(texto) {
+      const filas = texto.trim().split('\n');
+      const datos = [];
+      for (const fila of filas) {
+        const cols = fila.split('\t');
+        if (cols.length < 16) continue;
+        const [
+          fecha, uuid, , razon, factura, total, , facturaFisica, comentario, diasCredito,
+          urgente, pagada, , fechaTransaccion, concepto, uuidRelacionado
+        ] = cols;
+
+        const totalNum = parseFloat(total.replace(/[,$]/g, '')) || 0;
+
+        datos.push({
+          uuid: uuid.trim(),
+          fecha_transaccion: (fechaTransaccion || fecha).trim(),
+          razon_social_emisor: razon.trim(),
+          factura: factura.trim(),
+          total: totalNum,
+          factura_fisica: facturaFisica.trim().toUpperCase(),
+          comentario_factura_fisica: comentario.trim(),
+          dias_credito: parseInt(diasCredito) || 0,
+          urgente: urgente.trim().toUpperCase(),
+          pagada: pagada.trim().toUpperCase(),
+          concepto: concepto.trim(),
+          uuid_relacionado: uuidRelacionado.trim()
+        });
+      }
+      return datos;
+    }
+
+    async function procesarDatos() {
+      const input = document.getElementById('inputExcel').value;
+      const resultado = document.getElementById('resultado');
+      resultado.textContent = 'Procesando...';
+
+      const nuevos = [];
+      const actualizaciones = [];
+      const sinCambios = [];
+
+      const datosPegados = parsearDatos(input);
+      const uuids = datosPegados.map(d => d.uuid);
+
+      const { data: existentes, error } = await supabase
+        .from('deuda_pddprotec25')
+        .select('*')
+        .in('uuid', uuids);
+
+      if (error) {
+        resultado.textContent = 'Error al consultar Supabase: ' + error.message;
+        return;
+      }
+
+      const mapaExistentes = {};
+      (existentes || []).forEach(row => mapaExistentes[row.uuid] = row);
+
+      for (const nuevo of datosPegados) {
+        const existente = mapaExistentes[nuevo.uuid];
+        if (!existente) {
+          nuevos.push(nuevo);
+        } else {
+          let cambia = false;
+          const campos = ['fecha_transaccion', 'razon_social_emisor', 'factura', 'total', 'factura_fisica', 'comentario_factura_fisica', 'dias_credito', 'urgente', 'pagada', 'concepto', 'uuid_relacionado'];
+          for (const campo of campos) {
+            const valorNuevo = nuevo[campo]?.toString().trim() || '';
+            const valorViejo = existente[campo]?.toString().trim() || '';
+            if (valorNuevo !== valorViejo) {
+              cambia = true;
+              break;
+            }
+          }
+          if (cambia) {
+            actualizaciones.push(nuevo);
+          } else {
+            sinCambios.push(nuevo);
+          }
+        }
+      }
+
+      if (nuevos.length > 0) {
+        await supabase.from('deuda_pddprotec25').insert(nuevos);
+      }
+
+      for (const upd of actualizaciones) {
+        await supabase
+          .from('deuda_pddprotec25')
+          .update(upd)
+          .eq('uuid', upd.uuid);
+      }
+
+      resultado.textContent =
+        `✅ Procesamiento finalizado:\n` +
+        `• Nuevos insertados: ${nuevos.length}\n` +
+        `• Actualizados: ${actualizaciones.length}\n` +
+        `• Sin cambios: ${sinCambios.length}`;
+    }
+  </script>
+</body>
+</html>

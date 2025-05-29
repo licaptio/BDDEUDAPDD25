@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Consulta de Factura por UUID</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      padding: 30px;
+      background-color: #f2f4f7;
+      color: #333;
+    }
+
+.contenedor {
+  max-width: 1100px;
+  margin: auto;
+  background-color: #ffffff;
+  padding: 30px;
+  border-radius: 10px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+
+    h1 {
+      color: #00264d;
+      font-size: 24px;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      max-width: 500px;
+      padding: 12px;
+      font-size: 16px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+    }
+
+    button {
+      margin-top: 15px;
+      padding: 10px 20px;
+      font-size: 16px;
+      background-color: #00264d;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    .resumen {
+      margin-top: 30px;
+    }
+
+    .resumen p {
+      margin: 8px 0;
+      font-size: 15px;
+    }
+
+    .resumen strong {
+      color: #00264d;
+    }
+
+    @media (max-width: 600px) {
+      .contenedor {
+        padding: 20px;
+      }
+
+      input[type="text"] {
+        width: 100%;
+      }
+
+      button {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="contenedor">
+    <h1>Consulta de Factura por UUID</h1>
+    <input type="text" id="uuidInput" placeholder="Escribe el UUID exacto de la factura">
+    <button onclick="buscarFactura()">Buscar</button>
+
+    <div id="resumenUUID" class="resumen"></div>
+  </div>
+
+  <script>
+    const supabase = window.supabase.createClient(
+      'https://cvpbtjlupswbyxenugpz.supabase.co',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN2cGJ0amx1cHN3Ynl4ZW51Z3B6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc3MDIxOTQsImV4cCI6MjA2MzI3ODE5NH0.iiJsYM3TtaGPdeCtPcEXwAz3LfFc1uJGECEvOErvrqY'
+    );
+
+    const formatter = new Intl.NumberFormat('es-MX', {
+      style: 'currency',
+      currency: 'MXN'
+    });
+
+    function formatFecha(fechaStr) {
+      const fecha = new Date(fechaStr);
+      return fecha.toLocaleDateString('es-MX');
+    }
+
+    async function buscarFactura() {
+      let uuid = document.getElementById('uuidInput').value
+        .replaceAll(' ', '')
+        .trim()
+        .toLowerCase();
+
+      const contenedor = document.getElementById('resumenUUID');
+      contenedor.innerHTML = '';
+
+      if (!uuid) {
+        contenedor.innerHTML = `<p><strong>❌ Escribe un UUID para buscar.</strong></p>`;
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('deuda_pddprotec25')
+        .select('*')
+        .eq('uuid', uuid)
+        .limit(1);
+
+      if (error || !data || data.length === 0) {
+        contenedor.innerHTML = `<p><strong>⚠️ No se encontró una factura con ese UUID.</strong></p>`;
+        return;
+      }
+
+const f = data[0];
+contenedor.innerHTML = `
+  <h3>Resumen de Factura</h3>
+  <p><strong>UUID:</strong> ${f.uuid}</p>
+  <p><strong>Factura:</strong> ${f.factura}</p>
+  <p><strong>Folio Interno:</strong> ${f.folio_interno || 'N/D'}</p>
+  <p><strong>Razón Social Emisor:</strong> ${f.razon_social_emisor}</p>
+  <p><strong>Fecha de Transacción:</strong> ${formatFecha(f.fecha_transaccion)}</p>
+  <p><strong>Importe Total:</strong> ${formatter.format(f.total)}</p>
+  <p><strong>Pagada:</strong> ${f.factura_pagada}</p>
+  <p><strong>Comentarios:</strong> ${f.comentarios || 'Sin comentarios'}</p>
+  <p><strong>Notas:</strong> ${f.notas || 'Sin notas'}</p>
+  <p><strong>Comentario Factura Física:</strong> ${f.comentario_factura_fisica || 'N/D'}</p>
+<div style="margin-top: 16px;">
+  <strong>Concepto:</strong>
+<pre style="
+  background-color: #f5f5f5;
+  padding: 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.8;
+  font-family: 'Courier New', monospace;
+  border: 1px solid #ccc;
+  width: calc(100% + 80px);
+  margin-left: -40px;
+  box-sizing: border-box;
+  overflow-x: auto;
+">${
+  (f.concepto || 'Sin concepto')
+    .replace(/ ?ClaveProdServ:/g, '\nClaveProdServ:')
+}</pre>
+
+
+
+
+</div>
+
+`;
+
+    }
+  </script>
+</body>
+</html>

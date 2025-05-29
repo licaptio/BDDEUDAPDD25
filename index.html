@@ -284,6 +284,22 @@
 
     document.getElementById('buscarBtn').addEventListener('click', buscarFactura);
     document.getElementById('guardarBtn').addEventListener('click', guardarCambios);
+
+
+  const input = document.getElementById('uuidInput');
+  input.addEventListener('input', function () {
+    const texto = input.value;
+    if (texto.includes("verificacfdi.facturaelectronica.sat.gob.mx")) {
+      const params = new URLSearchParams(texto.split("?")[1]);
+      const uuid = params.get("id");
+      if (uuid) input.value = uuid;
+    }
+  });
+
+
+
+
+
   </script>
 </body>
 </html>
